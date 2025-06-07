@@ -1,6 +1,7 @@
 import React from 'react';
 import Chart from 'react-apexcharts';
 import { ApexOptions } from 'apexcharts';
+import { Box, useTheme } from '@mui/material';
 
 export interface Candle {
   x: number; // timestamp
@@ -39,11 +40,12 @@ const QortCandlestickChart: React.FC<Props> = ({
 }) => {
   const smaData = showSMA ? calculateSMA(candles, 7) : [];
   const intervalLabel = interval === 24 * 60 * 60 * 1000 ? '1d' : '1h';
-  // const [yMin, setYMin] = useState(undefined);
-  // const [yMax, setYMax] = useState(undefined);
+  const theme = useTheme();
   const options: ApexOptions = {
     chart: {
       type: 'candlestick',
+      width: '100%',
+      height: '100%',
       background: background,
       toolbar: {
         show: true,
@@ -66,25 +68,29 @@ const QortCandlestickChart: React.FC<Props> = ({
     title: {
       text: `QORT/${pairLabel} Price (${intervalLabel} Candles) (${themeMode === 'dark' ? 'Dark' : 'Light'} Theme)`,
       align: 'center',
-      style: { color: textColor, fontWeight: 700, fontSize: '1.11rem' },
+      style: {
+        color: theme.palette.text.primary,
+        fontWeight: 700,
+        fontSize: '1.11rem',
+      },
       offsetY: 8, //adjust if necessary
     },
     xaxis: {
       type: 'datetime',
-      labels: { style: { colors: textColor } },
+      labels: { style: { colors: theme.palette.text.primary } },
       axisBorder: { color: textColor },
       axisTicks: { color: textColor },
       tooltip: { enabled: true },
     },
     yaxis: {
       tooltip: { enabled: true },
-      labels: { style: { colors: textColor } },
+      labels: { style: { colors: theme.palette.text.primary } },
       axisBorder: { color: textColor },
       axisTicks: { color: textColor },
     },
     theme: { mode: themeMode },
     legend: {
-      labels: { colors: textColor },
+      labels: { colors: theme.palette.text.primary },
       show: showSMA && smaData.length > 0,
     },
     grid: {
@@ -93,21 +99,14 @@ const QortCandlestickChart: React.FC<Props> = ({
     tooltip: {
       theme: themeMode,
     },
-    responsive: [
-      {
-        breakpoint: 800,
-        options: {
-          chart: { height: 320 },
-          title: { style: { fontSize: '1rem' } },
-        },
-      },
-      {
-        breakpoint: 1200,
-        options: {
-          chart: { height: 400 },
-        },
-      },
-    ],
+    // plotOptions: {
+    //   candlestick: {
+    //     // Width can be a number (pixels) or a string (percentage)
+    //     // e.g., width: 8 (pixels) or width: '80%' (of grid slot)
+    //     // @ts-expect-error: width is supported at runtime even if not in types
+    //     width: '100%',
+    //   },
+    // },
   };
 
   const series = [
@@ -118,7 +117,22 @@ const QortCandlestickChart: React.FC<Props> = ({
   ];
 
   return (
-    <Chart options={options} series={series} type="candlestick" height={420} />
+    <Box
+      sx={{
+        width: '100%',
+        height: { xs: 280, sm: 420, md: 540, lg: '60vh' },
+        minHeight: 240,
+        maxWidth: '100vw',
+      }}
+    >
+      <Chart
+        options={options}
+        series={series}
+        type="candlestick"
+        width="100%"
+        height="100%"
+      />
+    </Box>
   );
 };
 

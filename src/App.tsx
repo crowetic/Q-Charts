@@ -4,7 +4,7 @@ import QortCandlestickChart, {
 } from './components/QortCandlestickChart';
 import {
   aggregateCandles,
-  aggregateDailyCandles,
+  // aggregateDailyCandles,
   Trade,
 } from './utils/qortTrades';
 import Button from '@mui/material/Button';
@@ -66,57 +66,47 @@ const App: React.FC = () => {
   const [isFiltering, setIsFiltering] = useState(false);
   const [isUpdating, setIsUpdating] = useState<Record<string, boolean>>({});
 
-  // function filterOutliersPercentile(
-  //   trades: Trade[],
-  //   lower = 0.01,
-  //   upper = 0.99
-  // ): Trade[] {
-  //   if (trades.length < 10) return trades;
-
-  //   // Compute prices
-  //   const prices = trades
-  //     .map((t) => parseFloat(t.foreignAmount) / parseFloat(t.qortAmount))
-  //     .filter((x) => isFinite(x) && x > 0);
-
-  //   // Sort prices
-  //   const sorted = [...prices].sort((a, b) => a - b);
-  //   const lowerIdx = Math.floor(sorted.length * lower);
-  //   const upperIdx = Math.ceil(sorted.length * upper) - 1;
-  //   const min = sorted[lowerIdx];
-  //   const max = sorted[upperIdx];
-
-  //   // Filter trades within percentile range
-  //   return trades.filter((t) => {
-  //     const price = parseFloat(t.foreignAmount) / parseFloat(t.qortAmount);
-  //     return price >= min && price <= max;
-  //   });
-  // }
-
   function getLatestTradeTimestamp(trades: Trade[]): number {
     if (!trades || !trades.length) return 0;
     return Math.max(...trades.map((t) => t.tradeTimestamp));
   }
 
-  function fastPercentileFilter(trades: Trade[], lower = 0.01, upper = 0.99) {
-    // 1. Extract price array (one pass)
-    const prices = [];
-    const validTrades = [];
-    for (const t of trades) {
-      const qort = parseFloat(t.qortAmount);
-      const price = parseFloat(t.foreignAmount) / qort;
-      if (isFinite(price) && price > 0) {
-        prices.push(price);
-        validTrades.push({ trade: t, price });
-      }
-    }
-    // 2. Get percentiles (sort once)
-    prices.sort((a, b) => a - b);
-    const min = prices[Math.floor(prices.length * lower)];
-    const max = prices[Math.ceil(prices.length * upper) - 1];
-    // 3. Filter in single pass
-    return validTrades
-      .filter(({ price }) => price >= min && price <= max)
-      .map(({ trade }) => trade);
+  // function fastPercentileFilter(trades: Trade[], lower = 0.01, upper = 0.99) {
+  //   // 1. Extract price array (one pass)
+  //   const prices = [];
+  //   const validTrades = [];
+  //   for (const t of trades) {
+  //     const qort = parseFloat(t.qortAmount);
+  //     const price = parseFloat(t.foreignAmount) / qort;
+  //     if (isFinite(price) && price > 0) {
+  //       prices.push(price);
+  //       validTrades.push({ trade: t, price });
+  //     }
+  //   }
+  //   // 2. Get percentiles (sort once)
+  //   prices.sort((a, b) => a - b);
+  //   const min = prices[Math.floor(prices.length * lower)];
+  //   const max = prices[Math.ceil(prices.length * upper) - 1];
+  //   // 3. Filter in single pass
+  //   return validTrades
+  //     .filter(({ price }) => price >= min && price <= max)
+  //     .map(({ trade }) => trade);
+  // }
+
+  function fastPercentileFilter(trades: Trade[], lower = 0.002, upper = 0.998) {
+    if (trades.length < 200) return trades;
+    const prices = trades
+      .map((t) => parseFloat(t.foreignAmount) / parseFloat(t.qortAmount))
+      .filter((x) => isFinite(x) && x > 0);
+    const sorted = [...prices].sort((a, b) => a - b);
+    const lowerIdx = Math.floor(sorted.length * lower);
+    const upperIdx = Math.ceil(sorted.length * upper) - 1;
+    const min = sorted[lowerIdx];
+    const max = sorted[upperIdx];
+    return trades.filter((t) => {
+      const price = parseFloat(t.foreignAmount) / parseFloat(t.qortAmount);
+      return price >= min && price <= max;
+    });
   }
 
   // --- LocalStorage LOAD on mount ---
@@ -146,13 +136,15 @@ const App: React.FC = () => {
       console.log('Filter effect skipped - waiting for cacheLoaded');
       return;
     }
+
     setIsFiltering(true);
+
     setTimeout(() => {
       // --- Determine minTimestamp ---
       const now = new Date();
       const periodObj = PERIODS.find((p) => p.label === period);
       let minTimestamp = 0;
-      let useDaily = false;
+      // let useDaily = false;
       if (periodObj) {
         if ('days' in periodObj && periodObj.days !== undefined) {
           now.setDate(now.getDate() - periodObj.days);
@@ -164,12 +156,12 @@ const App: React.FC = () => {
         ) {
           now.setMonth(now.getMonth() - periodObj.months);
           minTimestamp = now.getTime();
-          // For 1M or more, use daily candles
-          if (periodObj.months >= 1) useDaily = true;
+          // For 1M or more, use daily candles----------------------------------------------DISABLED FORCING DAILY CANDLES, AND MODIFIED FILTERING.
+          // if (periodObj.months >= 6) useDaily = false;
         } else if ('months' in periodObj && periodObj.months === null) {
           // 'All'
           minTimestamp = 0;
-          useDaily = true;
+          // useDaily = false;
         }
       }
       // --- Filter trades ---
@@ -177,14 +169,16 @@ const App: React.FC = () => {
       let filtered = minTimestamp
         ? trades.filter((t) => t.tradeTimestamp >= minTimestamp)
         : trades;
-      filtered = fastPercentileFilter(filtered, 0.01, 0.99);
+      filtered = fastPercentileFilter(filtered, 0.00005, 0.995);
 
-      // --- Aggregate ---
-      if (useDaily) {
-        setCandles(aggregateDailyCandles(filtered));
-      } else {
-        setCandles(aggregateCandles(filtered, interval));
-      }
+      // // --- Aggregate ---
+      // if (useDaily) {
+      //   setCandles(aggregateDailyCandles(filtered));
+      // } else {
+      //   setCandles(aggregateCandles(filtered, interval));
+      // }
+
+      setCandles(aggregateCandles(filtered, interval));
       setIsFiltering(false);
     }, 10);
   }, [interval, period, selectedChain, allChainTrades, cacheLoaded]);
@@ -300,10 +294,11 @@ const App: React.FC = () => {
         total={null}
         chain={selectedChain}
       />
-      <Container maxWidth="xl" disableGutters>
+      <Container maxWidth={false} disableGutters>
         <Box
           sx={{
             minHeight: '100vh',
+            width: '100vw',
             background: theme.palette.background.default,
             color: theme.palette.text.primary,
             p: { xs: 1, md: 3 },
@@ -313,11 +308,11 @@ const App: React.FC = () => {
           <Paper
             elevation={5}
             sx={{
-              p: { xs: 1, md: 4 },
-              maxWidth: 1800,
-              margin: '36px auto 0 auto',
+              width: '100%',
+              margin: '36px 0 0 0', // Remove 'auto' to allow full width
               background: theme.palette.background.paper,
               boxShadow: theme.shadows[6],
+              p: { xs: 1, md: 4 },
             }}
           >
             {/* Action Button */}
@@ -449,13 +444,13 @@ const App: React.FC = () => {
                 </Button>
               ))}
             </Box>
-            {/* Chart */}
             <Box
               sx={{
                 width: '100%',
-                maxWidth: 1800,
-                height: { xs: 320, md: 520 },
+                height: { xs: 320, md: 520, lg: '60vh' }, // adapt for screen
                 mx: 'auto',
+                minHeight: 240,
+                position: 'relative',
               }}
             >
               <QortCandlestickChart
