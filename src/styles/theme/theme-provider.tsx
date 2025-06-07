@@ -1,23 +1,23 @@
-import React, { FC } from 'react';
-import { ThemeProvider } from '@emotion/react';
-import { lightTheme, darkTheme } from './theme';
+import React from 'react';
+import { ThemeProvider } from '@mui/material/styles';
 import { CssBaseline } from '@mui/material';
-import { EnumTheme, themeAtom } from '../../state/global/system';
 import { useAtom } from 'jotai';
+import { EnumTheme, themeAtom } from '../../state/global/system';
+import { lightTheme, darkTheme } from './theme';
 
-interface ThemeProviderWrapperProps {
-  children: React.ReactNode;
-}
-
-const ThemeProviderWrapper: FC<ThemeProviderWrapperProps> = ({ children }) => {
-  const [theme] = useAtom(themeAtom);
-
+const ThemeProviderWrapper: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
+  const [themeMode] = useAtom(themeAtom);
+  const theme = React.useMemo(
+    () => (themeMode === EnumTheme.LIGHT ? lightTheme : darkTheme),
+    [themeMode]
+  );
   return (
-    <ThemeProvider theme={theme === EnumTheme.LIGHT ? lightTheme : darkTheme}>
+    <ThemeProvider theme={theme}>
       <CssBaseline />
       {children}
     </ThemeProvider>
   );
 };
-
 export default ThemeProviderWrapper;

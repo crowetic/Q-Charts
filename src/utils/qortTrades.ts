@@ -21,7 +21,7 @@ export async function fetchTrades({
   minimumTimestamp,
   buyerPublicKey,
   sellerPublicKey,
-  limit = 1000,
+  limit = 100,
   offset = 0,
   reverse = false,
 }: FetchTradesOptions): Promise<Trade[]> {
@@ -43,6 +43,36 @@ export async function fetchTrades({
 
 // Candle chart utility
 export type Candle = { x: number; y: [number, number, number, number] };
+
+export function aggregateDailyCandles(trades: Trade[]): Candle[] {
+  if (!trades.length) return [];
+  const dayBuckets: { [day: string]: Trade[] } = {};
+  trades.forEach((t) => {
+    const d = new Date(t.tradeTimestamp);
+    const dayKey = `${d.getUTCFullYear()}-${d.getUTCMonth() + 1}-${d.getUTCDate()}`;
+    if (!dayBuckets[dayKey]) dayBuckets[dayKey] = [];
+    dayBuckets[dayKey].push(t);
+  });
+  return Object.entries(dayBuckets)
+    .map(([, tList]) => {
+      const sorted = tList.sort((a, b) => a.tradeTimestamp - b.tradeTimestamp);
+      const prices = sorted.map(
+        (t) => parseFloat(t.foreignAmount) / parseFloat(t.qortAmount)
+      );
+      if (prices.length === 0) return null; // Should not happen, but for safety
+
+      // Force tuple type
+      const open = prices[0];
+      const high = Math.max(...prices);
+      const low = Math.min(...prices);
+      const close = prices[prices.length - 1];
+      return {
+        x: sorted[0].tradeTimestamp,
+        y: [open, high, low, close] as [number, number, number, number],
+      };
+    })
+    .filter(Boolean) as Candle[];
+}
 
 export function aggregateCandles(
   trades: Trade[],
