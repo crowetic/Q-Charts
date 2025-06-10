@@ -14,3 +14,5 @@ The default of the drawn trade charts are with 1D candles, as they seem to look 
 ### Volume Pop-Up
 
 Volume for any given candle will be displayed in a pop-up upon mouseover of that candle. Volume charts were not behaving correctly, but may be re-added added in the future.
+
+## Many Additional Updates to Come
