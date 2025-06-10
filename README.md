@@ -1,63 +1,16 @@
-# React + TypeScript + Vite
+# Q-Charts
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Q-Charts is a Qortal trade charting application that pulls data from the chain, and draws charts that any trader should be familiar with.
 
-Currently, two official plugins are available:
+## Features and Function
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+Q-Trade by default will pull ALL trade data from the chain, and save it to localstorage, in a trade data cache.
+There is now a clear cache button and a fetch new trades button that can be clicked at any point to incrementally fetch new trades.
 
-## Expanding the ESLint configuration
+### Daily Candle Defaults
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+The default of the drawn trade charts are with 1D candles, as they seem to look the best for the majority of Qortal Charts at the moment. Going below 2W threshold for the drawing of the charts didn't look great, so that is default minimum.
 
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-});
-```
+### Volume Pop-Up
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x';
-import reactDom from 'eslint-plugin-react-dom';
-
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-});
-```
-
-## Internationalization of the app (I18N)
-
-This template supports internationalization (i18n) using [i18next](https://www.i18next.com/), allowing seamless translation of UI text into multiple languages.
-The setup includes modularized translation files (namespaces), language detection, context and runtime language switching.
-
-Files with translation are in `src/i18n/locales/<locale>` folder.
-
-`core` namespace is already present and active.
+Volume for any given candle will be displayed in a pop-up upon mouseover of that candle. Volume charts were not behaving correctly, but may be re-added added in the future.
