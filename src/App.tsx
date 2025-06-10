@@ -60,6 +60,9 @@ export default function App() {
   const [cacheLoaded, setCacheLoaded] = useState<boolean>(false);
   const [needsUpdate, setNeedsUpdate] = useState<ChainMap<boolean>>({});
   const [isFetching, setIsFetching] = useState<ChainMap<boolean>>({});
+  const [fetchProgress, setFetchProgress] = useState<Record<string, number>>(
+    {}
+  );
 
   // --- Helpers ---
   const getLatest = (trades: Trade[]) =>
@@ -141,6 +144,7 @@ export default function App() {
           reverse: true,
         });
         all = all.concat(batch);
+        setFetchProgress((m) => ({ ...m, [chain]: all.length }));
         setAllChainTrades((m) => ({ ...m, [chain]: all }));
         if (batch.length < BATCH) break;
         offset += BATCH;
@@ -170,6 +174,7 @@ export default function App() {
           reverse: true,
         });
         newTrades = newTrades.concat(batch);
+        setFetchProgress((m) => ({ ...m, [chain]: newTrades.length }));
         if (batch.length < BATCH) break;
         offset += BATCH;
       }
@@ -201,17 +206,40 @@ export default function App() {
     });
   }
 
-  if (!cacheLoaded)
+  if (!cacheLoaded) {
+    const prog = fetchProgress[selectedChain] || 0;
     return (
       <Box
         display="flex"
+        flexDirection="column"
         alignItems="center"
         justifyContent="center"
         height="100vh"
       >
-        <CircularProgress />
+        <Typography variant="h6">Loading trades…</Typography>
+        <Typography variant="body2">
+          Fetched: {prog.toLocaleString()} trades
+        </Typography>
+        <CircularProgress sx={{ my: 2 }} />
+        {prog > 0 && (
+          <Box width="90%" height={300}>
+            <QortMultiChart
+              candles={aggregateCandles(
+                allChainTrades[selectedChain] || [],
+                interval
+              )}
+              showSMA
+              themeMode={theme.palette.mode as 'light' | 'dark'}
+              background={theme.palette.background.paper}
+              textColor={theme.palette.text.primary}
+              pairLabel={selectedChain}
+              interval={interval}
+            />
+          </Box>
+        )}
       </Box>
     );
+  }
 
   const tradesCount = (allChainTrades[selectedChain] || []).length;
   const latestTS = getLatest(allChainTrades[selectedChain] || []);

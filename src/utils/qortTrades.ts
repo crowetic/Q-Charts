@@ -37,8 +37,15 @@ export async function fetchTrades({
   if (minimumTimestamp === 0) {
     params.delete('minimumTimestamp');
   }
+  function getApiRoot() {
+    const { origin, pathname } = window.location;
+    // if path contains “/render”, cut from there
+    const i = pathname.indexOf('/render/');
+    return i === -1 ? origin : origin + pathname.slice(0, i);
+  }
+  const API_ROOT = getApiRoot();
 
-  const url = `crosschain/trades?${params.toString()}`;
+  const url = `${API_ROOT}/crosschain/trades?${params.toString()}`;
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   return await resp.json();
