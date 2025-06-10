@@ -1,20 +1,19 @@
-import React, { useEffect, useState } from 'react';
-import QortCandlestickChart, {
-  Candle,
-} from './components/QortCandlestickChart';
-import {
-  aggregateCandles,
-  // aggregateDailyCandles,
-  Trade,
-} from './utils/qortTrades';
-import Button from '@mui/material/Button';
-import Box from '@mui/material/Box';
-import Container from '@mui/material/Container';
-import Paper from '@mui/material/Paper';
-import FetchAllTradesModal from './components/FetchAllTradesModal';
-import { useTheme } from '@mui/material/styles';
-import { CircularProgress } from '@mui/material';
+import { useEffect, useState, useMemo } from 'react';
+import { Trade, fetchTrades, aggregateCandles } from './utils/qortTrades';
+import { Candle } from './utils/qortTrades';
+import { QortMultiChart } from './components/QortMultiChart';
 
+import {
+  Button,
+  Box,
+  Container,
+  // Paper,
+  CircularProgress,
+  Typography,
+} from '@mui/material';
+import { useTheme } from '@mui/material/styles';
+
+// --- Constants ---
 const CHAINS = [
   { value: 'LITECOIN', label: 'LTC' },
   { value: 'BITCOIN', label: 'BTC' },
@@ -25,449 +24,365 @@ const CHAINS = [
 ];
 
 const PERIODS = [
-  { label: '1D', days: 1 },
-  { label: '5D', days: 5 },
-  { label: '10D', days: 10 },
-  { label: '15D', days: 15 },
-  { label: '20D', days: 20 },
+  { label: '2W', days: 14 },
+  { label: '3W', days: 21 },
+  { label: '4W', days: 30 },
+  { label: '5W', days: 38 },
+  { label: '6W', days: 45 },
   { label: '1M', months: 1 },
   { label: '3M', months: 3 },
   { label: '6M', months: 6 },
   { label: '1Y', months: 12 },
+  { label: '1.5Y', months: 18 },
+  { label: '2Y', months: 24 },
+  { label: '2.5Y', months: 30 },
+  { label: '3Y', months: 36 },
   { label: 'All', months: null },
 ];
 
 const ONE_HOUR = 60 * 60 * 1000;
-const STORAGE_KEY = 'QORT_CANDLE_TRADES';
+const ONE_DAY = 24 * ONE_HOUR;
+const LS_KEY = 'QORT_CANDLE_TRADES';
+const LS_VERSION = 1;
 
-const App: React.FC = () => {
+type ChainMap<T> = Record<string, T>;
+
+export default function App() {
   const theme = useTheme();
-  const [candles, setCandles] = useState<Candle[]>([]);
-  const [interval, setInterval] = useState(ONE_HOUR);
-  const [period, setPeriod] = useState('3M');
-  const [selectedChain, setSelectedChain] = useState(CHAINS[0].value);
 
-  const [allChainTrades, setAllChainTrades] = useState<Record<string, Trade[]>>(
-    {}
-  );
-  const [isFetchingAll, setIsFetchingAll] = useState<Record<string, boolean>>(
-    {}
-  );
-  const [fetchProgress, setFetchProgress] = useState<Record<string, number>>(
-    {}
-  );
-  const [fetchError, setFetchError] = useState<Record<string, string | null>>(
-    {}
-  );
-  const [fetchModalOpen, setFetchModalOpen] = useState(false);
+  // --- UI state ---
+  const [selectedChain, setSelectedChain] = useState<string>(CHAINS[0].value);
+  const [interval, setInterval] = useState<number>(ONE_DAY);
+  const [period, setPeriod] = useState<string>('1Y');
 
-  const [cacheLoaded, setCacheLoaded] = useState(false);
+  // --- Data state ---
+  const [allChainTrades, setAllChainTrades] = useState<ChainMap<Trade[]>>({});
+  const [cacheLoaded, setCacheLoaded] = useState<boolean>(false);
+  const [needsUpdate, setNeedsUpdate] = useState<ChainMap<boolean>>({});
+  const [isFetching, setIsFetching] = useState<ChainMap<boolean>>({});
 
-  const [isFiltering, setIsFiltering] = useState(false);
-  const [isUpdating, setIsUpdating] = useState<Record<string, boolean>>({});
+  // --- Helpers ---
+  const getLatest = (trades: Trade[]) =>
+    trades.length ? Math.max(...trades.map((t) => t.tradeTimestamp)) : 0;
 
-  function getLatestTradeTimestamp(trades: Trade[]): number {
-    if (!trades || !trades.length) return 0;
-    return Math.max(...trades.map((t) => t.tradeTimestamp));
-  }
-
-  // function fastPercentileFilter(trades: Trade[], lower = 0.01, upper = 0.99) {
-  //   // 1. Extract price array (one pass)
-  //   const prices = [];
-  //   const validTrades = [];
-  //   for (const t of trades) {
-  //     const qort = parseFloat(t.qortAmount);
-  //     const price = parseFloat(t.foreignAmount) / qort;
-  //     if (isFinite(price) && price > 0) {
-  //       prices.push(price);
-  //       validTrades.push({ trade: t, price });
-  //     }
-  //   }
-  //   // 2. Get percentiles (sort once)
-  //   prices.sort((a, b) => a - b);
-  //   const min = prices[Math.floor(prices.length * lower)];
-  //   const max = prices[Math.ceil(prices.length * upper) - 1];
-  //   // 3. Filter in single pass
-  //   return validTrades
-  //     .filter(({ price }) => price >= min && price <= max)
-  //     .map(({ trade }) => trade);
-  // }
-
-  function fastPercentileFilter(trades: Trade[], lower = 0.002, upper = 0.998) {
-    if (trades.length < 200) return trades;
-    const prices = trades
-      .map((t) => parseFloat(t.foreignAmount) / parseFloat(t.qortAmount))
-      .filter((x) => isFinite(x) && x > 0);
-    const sorted = [...prices].sort((a, b) => a - b);
-    const lowerIdx = Math.floor(sorted.length * lower);
-    const upperIdx = Math.ceil(sorted.length * upper) - 1;
-    const min = sorted[lowerIdx];
-    const max = sorted[upperIdx];
-    return trades.filter((t) => {
-      const price = parseFloat(t.foreignAmount) / parseFloat(t.qortAmount);
-      return price >= min && price <= max;
-    });
-  }
-
-  // --- LocalStorage LOAD on mount ---
+  // --- 1) Load cache ---
   useEffect(() => {
-    const cached = localStorage.getItem(STORAGE_KEY);
-    if (cached) {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
       try {
-        setAllChainTrades(JSON.parse(cached));
-      } catch (err) {
-        console.log(err);
-        localStorage.removeItem(STORAGE_KEY); // Bad cache, nuke it
+        const { version, allChainTrades: saved } = JSON.parse(raw);
+        if (version === LS_VERSION) setAllChainTrades(saved);
+        else localStorage.removeItem(LS_KEY);
+      } catch {
+        localStorage.removeItem(LS_KEY);
       }
     }
     setCacheLoaded(true);
   }, []);
 
+  // --- 2) Save cache ---
   useEffect(() => {
-    // Always save to localStorage when allChainTrades updates
-    if (cacheLoaded) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(allChainTrades));
-    }
+    if (!cacheLoaded) return;
+    const payload = { version: LS_VERSION, allChainTrades };
+    localStorage.setItem(LS_KEY, JSON.stringify(payload));
   }, [allChainTrades, cacheLoaded]);
 
-  // --- Filtering candles for chart based on selected time period ---
+  // --- 3) Decide fetch strategy ---
   useEffect(() => {
-    if (!cacheLoaded) {
-      console.log('Filter effect skipped - waiting for cacheLoaded');
-      return;
+    if (!cacheLoaded) return;
+    const trades = allChainTrades[selectedChain] || [];
+    if (!trades.length) doFullFetch(selectedChain);
+    else {
+      const age = Date.now() - getLatest(trades);
+      setNeedsUpdate((m) => ({ ...m, [selectedChain]: age > ONE_DAY }));
     }
+  }, [cacheLoaded, selectedChain, allChainTrades]);
 
-    setIsFiltering(true);
+  // --- 4) Prepare candles ---
+  const candles = useMemo<Candle[]>(() => {
+    if (!cacheLoaded) return [];
+    const trades = allChainTrades[selectedChain] || [];
+    if (!trades.length) return [];
 
-    setTimeout(() => {
-      // --- Determine minTimestamp ---
-      const now = new Date();
-      const periodObj = PERIODS.find((p) => p.label === period);
-      let minTimestamp = 0;
-      // let useDaily = false;
-      if (periodObj) {
-        if ('days' in periodObj && periodObj.days !== undefined) {
-          now.setDate(now.getDate() - periodObj.days);
-          minTimestamp = now.getTime();
-        } else if (
-          'months' in periodObj &&
-          periodObj.months !== undefined &&
-          periodObj.months !== null
-        ) {
-          now.setMonth(now.getMonth() - periodObj.months);
-          minTimestamp = now.getTime();
-          // For 1M or more, use daily candles----------------------------------------------DISABLED FORCING DAILY CANDLES, AND MODIFIED FILTERING.
-          // if (periodObj.months >= 6) useDaily = false;
-        } else if ('months' in periodObj && periodObj.months === null) {
-          // 'All'
-          minTimestamp = 0;
-          // useDaily = false;
-        }
+    // apply period filter
+    const now = Date.now();
+    const p = PERIODS.find((p) => p.label === period);
+    let cutoff = 0;
+    if (p) {
+      if (p.days != null) cutoff = now - p.days * ONE_DAY;
+      else if (p.months != null) {
+        const d = new Date(now);
+        d.setMonth(d.getMonth() - p.months);
+        cutoff = d.getTime();
       }
-      // --- Filter trades ---
-      const trades = allChainTrades[selectedChain] || [];
-      let filtered = minTimestamp
-        ? trades.filter((t) => t.tradeTimestamp >= minTimestamp)
-        : trades;
-      filtered = fastPercentileFilter(filtered, 0.00005, 0.995);
+    }
+    const filtered = cutoff
+      ? trades.filter((t) => t.tradeTimestamp >= cutoff)
+      : trades;
 
-      // // --- Aggregate ---
-      // if (useDaily) {
-      //   setCandles(aggregateDailyCandles(filtered));
-      // } else {
-      //   setCandles(aggregateCandles(filtered, interval));
-      // }
+    // percentile filter
+    const cleaned = fastPercentileFilter(filtered, 0.00005, 0.995);
+    return aggregateCandles(cleaned, interval);
+  }, [allChainTrades, selectedChain, period, interval, cacheLoaded]);
 
-      setCandles(aggregateCandles(filtered, interval));
-      setIsFiltering(false);
-    }, 10);
-  }, [interval, period, selectedChain, allChainTrades, cacheLoaded]);
-
-  // --- Full-history fetch logic (background, not tied to modal) ---
-  const startFetchAll = (chain: string) => {
-    setIsFetchingAll((prev) => ({ ...prev, [chain]: true }));
-    setFetchError((prev) => ({ ...prev, [chain]: null }));
-    setFetchModalOpen(true);
-    setFetchProgress((prev) => ({ ...prev, [chain]: 0 }));
-
-    let allTrades: Trade[] = [];
+  // --- Full fetch ---
+  async function doFullFetch(chain: string) {
+    setIsFetching((m) => ({ ...m, [chain]: true }));
+    let all: Trade[] = [];
     let offset = 0;
-    const BATCH_SIZE = 100;
-    let keepGoing = true;
-
-    (async function fetchLoop() {
-      try {
-        while (keepGoing) {
-          const url = `/crosschain/trades?foreignBlockchain=${chain}&limit=${BATCH_SIZE}&offset=${offset}&reverse=true`;
-          const resp = await fetch(url);
-          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-          const trades: Trade[] = await resp.json();
-          allTrades = allTrades.concat(trades);
-          setAllChainTrades((prev) => ({
-            ...prev,
-            [chain]: [...allTrades],
-          }));
-          setFetchProgress((prev) => ({ ...prev, [chain]: allTrades.length }));
-          if (trades.length < BATCH_SIZE) {
-            keepGoing = false;
-          } else {
-            offset += BATCH_SIZE;
-          }
-        }
-      } catch (err) {
-        setFetchError((prev) => ({ ...prev, [chain]: String(err) }));
-      } finally {
-        setIsFetchingAll((prev) => ({ ...prev, [chain]: false }));
-      }
-    })();
-  };
-
-  const updateTrades = async (chain: string) => {
-    setIsUpdating((prev) => ({ ...prev, [chain]: true }));
+    const BATCH = 100;
     try {
-      const localTrades = allChainTrades[chain] || [];
-      const latest = getLatestTradeTimestamp(localTrades);
-      let offset = 0;
-      const BATCH_SIZE = 100;
-      let keepGoing = true;
-      let newTrades: Trade[] = [];
-      while (keepGoing) {
-        const url = `/crosschain/trades?foreignBlockchain=${chain}&limit=${BATCH_SIZE}&offset=${offset}&minimumTimestamp=${latest + 1}&reverse=true`;
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const batch: Trade[] = await resp.json();
-        newTrades = newTrades.concat(batch);
-        if (batch.length < BATCH_SIZE) {
-          keepGoing = false;
-        } else {
-          offset += BATCH_SIZE;
-        }
+      while (true) {
+        const batch = await fetchTrades({
+          foreignBlockchain: chain,
+          minimumTimestamp: 0,
+          limit: BATCH,
+          offset,
+          reverse: true,
+        });
+        all = all.concat(batch);
+        setAllChainTrades((m) => ({ ...m, [chain]: all }));
+        if (batch.length < BATCH) break;
+        offset += BATCH;
       }
-      if (newTrades.length) {
-        setAllChainTrades((prev) => ({
-          ...prev,
-          [chain]: [...newTrades, ...(prev[chain] || [])],
-        }));
-      }
+    } catch (e) {
+      console.error('Full fetch error', e);
     } finally {
-      setIsUpdating((prev) => ({ ...prev, [chain]: false }));
+      setIsFetching((m) => ({ ...m, [chain]: false }));
     }
+  }
+
+  // --- Incremental fetch ---
+  async function doIncrementalFetch(chain: string) {
+    setIsFetching((m) => ({ ...m, [chain]: true }));
+    try {
+      const existing = allChainTrades[chain] || [];
+      const latest = getLatest(existing);
+      let newTrades: Trade[] = [];
+      let offset = 0;
+      const BATCH = 100;
+      while (true) {
+        const batch = await fetchTrades({
+          foreignBlockchain: chain,
+          minimumTimestamp: latest + 1,
+          limit: BATCH,
+          offset,
+          reverse: true,
+        });
+        newTrades = newTrades.concat(batch);
+        if (batch.length < BATCH) break;
+        offset += BATCH;
+      }
+      if (newTrades.length)
+        setAllChainTrades((m) => ({
+          ...m,
+          [chain]: [...newTrades, ...(m[chain] || [])],
+        }));
+      setNeedsUpdate((m) => ({ ...m, [chain]: false }));
+    } catch (e) {
+      console.error('Incremental fetch error', e);
+    } finally {
+      setIsFetching((m) => ({ ...m, [chain]: false }));
+    }
+  }
+
+  // --- percentile filter ---
+  function fastPercentileFilter(trades: Trade[], lower = 0.002, upper = 0.998) {
+    if (trades.length < 200) return trades;
+    const prices = trades
+      .map((t) => parseFloat(t.foreignAmount) / parseFloat(t.qortAmount))
+      .filter((x) => isFinite(x) && x > 0)
+      .sort((a, b) => a - b);
+    const lo = prices[Math.floor(prices.length * lower)];
+    const hi = prices[Math.ceil(prices.length * upper) - 1];
+    return trades.filter((t) => {
+      const p = parseFloat(t.foreignAmount) / parseFloat(t.qortAmount);
+      return p >= lo && p <= hi;
+    });
+  }
+
+  if (!cacheLoaded)
+    return (
+      <Box
+        display="flex"
+        alignItems="center"
+        justifyContent="center"
+        height="100vh"
+      >
+        <CircularProgress />
+      </Box>
+    );
+
+  const tradesCount = (allChainTrades[selectedChain] || []).length;
+  const latestTS = getLatest(allChainTrades[selectedChain] || []);
+  const latestDate = latestTS ? new Date(latestTS).toLocaleString() : 'N/A';
+  const stale = needsUpdate[selectedChain];
+  const loading = isFetching[selectedChain];
+
+  // --- clear cache ---
+  const clearCache = () => {
+    localStorage.removeItem(LS_KEY);
+    setAllChainTrades({});
+    setNeedsUpdate({});
   };
-
-  // --- UI state helpers ---
-  const chainFetched = !!allChainTrades[selectedChain];
-  const chainFetching = !!isFetchingAll[selectedChain];
-
-  if (!cacheLoaded) return <div>Loading trade cache...</div>;
 
   return (
-    <>
-      {isFiltering && (
-        <Box
-          sx={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.35)',
-            zIndex: 20000,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <CircularProgress size={64} sx={{ color: '#00eaff', mb: 2 }} />
-          <Box sx={{ color: '#fff', fontWeight: 600, fontSize: 24 }}>
-            Filtering trades for chart...
-          </Box>
+    <Container
+      maxWidth={false}
+      disableGutters
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh', // take full viewport height
+        // overflow: 'hidden',
+        // background: theme.palette.background.default,
+      }}
+    >
+      {/* Top bar: status, controls, fetch buttons */}
+      <Box
+        sx={{
+          flex: '0 0 auto',
+          p: 2,
+          position: 'relative',
+          background: theme.palette.background.default,
+        }}
+      >
+        {/* Status & Clear */}
+        <Box position="absolute" top={16} right={16} textAlign="right">
+          <Typography variant="caption">
+            Trades: {tradesCount.toLocaleString()}
+            <br />
+            Latest: {latestDate}
+          </Typography>
+          <Button
+            size="small"
+            variant="contained"
+            color="warning"
+            onClick={clearCache}
+            sx={{ mt: 1 }}
+          >
+            Clear Cache
+          </Button>
+
+          {/* Manual Update button */}
+          <Button
+            variant="outlined"
+            size="small"
+            color="info"
+            onClick={() => doIncrementalFetch(selectedChain)}
+            disabled={isFetching[selectedChain]}
+            sx={{ ml: 2 }}
+          >
+            Obtain New Trades
+          </Button>
         </Box>
-      )}
-      {/* Fetch Progress Modal */}
-      <FetchAllTradesModal
-        open={fetchModalOpen}
-        onClose={() => setFetchModalOpen(false)}
-        isFetching={chainFetching}
-        progress={fetchProgress[selectedChain] || 0}
-        error={fetchError[selectedChain]}
-        total={null}
-        chain={selectedChain}
-      />
-      <Container maxWidth={false} disableGutters>
-        <Box
-          sx={{
-            minHeight: '100vh',
-            width: '100vw',
-            background: theme.palette.background.default,
-            color: theme.palette.text.primary,
-            p: { xs: 1, md: 3 },
-            transition: 'background 0.3s, color 0.3s',
-          }}
-        >
-          <Paper
-            elevation={5}
+
+        {/* Controls */}
+        <Box mb={2} display="flex" alignItems="center" flexWrap="wrap">
+          <label>
+            Pair:&nbsp;
+            <select
+              value={selectedChain}
+              onChange={(e) => setSelectedChain(e.target.value)}
+            >
+              {CHAINS.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          &nbsp;&nbsp;Interval:
+          <Button size="small" onClick={() => setInterval(ONE_HOUR)}>
+            1H
+          </Button>
+          <Button size="small" onClick={() => setInterval(24 * ONE_HOUR)}>
+            1D
+          </Button>
+          &nbsp;&nbsp;Show:
+          {PERIODS.map((p) => (
+            <Button
+              key={p.label}
+              size="small"
+              variant={period === p.label ? 'contained' : 'outlined'}
+              onClick={() => setPeriod(p.label)}
+              sx={{ mx: 0.5 }}
+            >
+              {p.label}
+            </Button>
+          ))}
+        </Box>
+
+        {/* Fetch Buttons */}
+        <Box mb={2}>
+          {!tradesCount && !loading && (
+            <Button
+              variant="contained"
+              onClick={() => doFullFetch(selectedChain)}
+            >
+              Fetch ALL {selectedChain} Trades
+            </Button>
+          )}
+          {stale && !loading && (
+            <Button
+              variant="contained"
+              color="warning"
+              onClick={() => doIncrementalFetch(selectedChain)}
+              sx={{ ml: 2 }}
+            >
+              Fetch new trades (over 24h old)
+            </Button>
+          )}
+          {loading && <CircularProgress size={24} sx={{ ml: 2 }} />}
+        </Box>
+      </Box>
+      {/* Chart */}
+      <Box
+        sx={{
+          flex: 1, // fill all leftover space
+          display: 'flex',
+          overflow: 'hidden', // clip any chart overflow
+          p: 2,
+          background: theme.palette.background.paper,
+        }}
+      >
+        {candles.length ? (
+          <Box
             sx={{
-              width: '100%',
-              margin: '36px 0 0 0', // Remove 'auto' to allow full width
-              background: theme.palette.background.paper,
-              boxShadow: theme.shadows[6],
-              p: { xs: 1, md: 4 },
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              background: 'transparent', // or theme.palette.background.default
+              p: 2,
             }}
           >
-            {/* Action Button */}
-            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 3 }}>
-              {!chainFetched && !chainFetching && (
-                <>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    size="large"
-                    sx={{
-                      fontWeight: 700,
-                      fontSize: 24,
-                      borderRadius: 3,
-                      px: 4,
-                    }}
-                    onClick={() => startFetchAll(selectedChain)}
-                  >
-                    Fetch ALL{' '}
-                    {CHAINS.find((c) => c.value === selectedChain)?.label ||
-                      selectedChain}{' '}
-                    Trades
-                  </Button>
-                  {/* <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => updateTrades(selectedChain)}
-                    disabled={isUpdating[selectedChain] || chainFetching}
-                  >
-                    {isUpdating[selectedChain]
-                      ? 'Updating...'
-                      : 'Check for new trades'}
-                  </Button> */}
-                </>
-              )}
-
-              {chainFetching && (
-                <Button
-                  variant="contained"
-                  color="primary"
-                  size="large"
-                  sx={{
-                    fontWeight: 700,
-                    fontSize: 24,
-                    borderRadius: 3,
-                    px: 4,
-                  }}
-                  onClick={() => setFetchModalOpen(true)}
-                >
-                  Show fetch progress
-                </Button>
-              )}
-
-              {chainFetched && !chainFetching && (
-                <>
-                  <Button
-                    variant="contained"
-                    color="success"
-                    size="large"
-                    sx={{
-                      fontWeight: 700,
-                      fontSize: 24,
-                      borderRadius: 3,
-                      px: 4,
-                    }}
-                    disabled
-                  >
-                    Data updated
-                  </Button>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => updateTrades(selectedChain)}
-                    disabled={isUpdating[selectedChain] || chainFetching}
-                  >
-                    {isUpdating[selectedChain]
-                      ? 'Updating...'
-                      : 'Check for new trades'}
-                  </Button>
-                </>
-              )}
-            </Box>
-            {/* Controls */}
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                mb: 2,
-                flexWrap: 'wrap',
-              }}
-            >
-              <label>
-                Pair:&nbsp;
-                <select
-                  value={selectedChain}
-                  onChange={(e) => setSelectedChain(e.target.value)}
-                  style={{
-                    fontSize: 16,
-                    padding: '2px 8px',
-                    background: theme.palette.background.paper,
-                    color: theme.palette.text.primary,
-                    borderRadius: 5,
-                  }}
-                >
-                  {CHAINS.map((chain) => (
-                    <option key={chain.value} value={chain.value}>
-                      {chain.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              &nbsp; Interval:&nbsp;
-              <Button size="small" onClick={() => setInterval(ONE_HOUR)}>
-                1H
-              </Button>
-              <Button size="small" onClick={() => setInterval(24 * ONE_HOUR)}>
-                1D
-              </Button>
-              &nbsp; Show:&nbsp;
-              {PERIODS.map((p) => (
-                <Button
-                  key={p.label}
-                  size="small"
-                  variant={period === p.label ? 'contained' : 'outlined'}
-                  onClick={() => setPeriod(p.label)}
-                  sx={{ minWidth: 40, mx: 0.5 }}
-                >
-                  {p.label}
-                </Button>
-              ))}
-            </Box>
-            <Box
-              sx={{
-                width: '100%',
-                height: { xs: 320, md: 520, lg: '60vh' }, // adapt for screen
-                mx: 'auto',
-                minHeight: 240,
-                position: 'relative',
-              }}
-            >
-              <QortCandlestickChart
-                candles={candles}
-                showSMA={true}
-                themeMode={theme.palette.mode}
-                background={theme.palette.background.paper}
-                textColor={theme.palette.text.primary}
-                pairLabel={selectedChain === 'LITECOIN' ? 'LTC' : selectedChain}
-                interval={interval}
-              />
-            </Box>
-          </Paper>
-        </Box>
-      </Container>
-    </>
+            <QortMultiChart
+              candles={candles}
+              showSMA
+              themeMode={theme.palette.mode as 'light' | 'dark'}
+              background={theme.palette.background.paper}
+              textColor={theme.palette.text.primary}
+              pairLabel={
+                CHAINS.find((c) => c.value === selectedChain)?.label ||
+                selectedChain
+              }
+              interval={interval}
+            />
+          </Box>
+        ) : (
+          <Box
+            sx={{
+              flex: 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <CircularProgress />
+          </Box>
+        )}
+      </Box>
+    </Container>
   );
-};
-
-export default App;
+}

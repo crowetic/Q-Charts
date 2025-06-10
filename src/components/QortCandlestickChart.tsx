@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import Chart from 'react-apexcharts';
 import { ApexOptions } from 'apexcharts';
 import { Box, useTheme } from '@mui/material';
@@ -6,6 +6,7 @@ import { Box, useTheme } from '@mui/material';
 export interface Candle {
   x: number; // timestamp
   y: [number, number, number, number]; // [open, high, low, close]
+  volume?: number;
 }
 
 interface Props {
@@ -29,6 +30,40 @@ function calculateSMA(data: Candle[], windowSize = 7) {
   return sma;
 }
 
+function calculateRSI(data: Candle[], period = 14) {
+  // not enough data → no RSI
+  if (data.length < period + 1) return [];
+
+  const closes = data.map((c) => c.y[3]);
+  const gains: number[] = [];
+  const losses: number[] = [];
+
+  for (let i = 1; i < closes.length; i++) {
+    const diff = closes[i] - closes[i - 1];
+    gains.push(Math.max(diff, 0));
+    losses.push(Math.max(-diff, 0));
+  }
+
+  const rsi: { x: number; y: number }[] = [];
+  let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
+
+  // first RSI datapoint at data[period]
+  rsi.push({
+    x: data[period].x,
+    y: 100 - 100 / (1 + avgGain / (avgLoss || 1)),
+  });
+
+  for (let i = period; i < gains.length; i++) {
+    avgGain = (avgGain * (period - 1) + gains[i]) / period;
+    avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
+    const rs = avgGain / (avgLoss || 1);
+    rsi.push({ x: data[i + 1].x, y: 100 - 100 / (1 + rs) });
+  }
+
+  return rsi;
+}
+
 const QortCandlestickChart: React.FC<Props> = ({
   candles,
   showSMA = true,
@@ -41,6 +76,21 @@ const QortCandlestickChart: React.FC<Props> = ({
   const smaData = showSMA ? calculateSMA(candles, 7) : [];
   const intervalLabel = interval === 24 * 60 * 60 * 1000 ? '1d' : '1h';
   const theme = useTheme();
+  const volumeData = useMemo(
+    () => candles.map((c) => ({ x: c.x, y: c.volume })),
+    [candles]
+  );
+  const rsiData = useMemo(() => calculateRSI(candles, 14), [candles]);
+
+  const series = [
+    { name: 'Price', type: 'candlestick', data: candles, yAxis: 0 },
+    ...(showSMA && smaData.length
+      ? [{ name: 'SMA (7)', type: 'line', data: smaData, yAxis: 0 }]
+      : []),
+    { name: 'Volume', type: 'bar', data: volumeData, yAxis: 1 },
+    { name: 'RSI (14)', type: 'line', data: rsiData, yAxis: 2 },
+  ];
+
   const options: ApexOptions = {
     chart: {
       type: 'candlestick',
@@ -99,22 +149,7 @@ const QortCandlestickChart: React.FC<Props> = ({
     tooltip: {
       theme: themeMode,
     },
-    // plotOptions: {
-    //   candlestick: {
-    //     // Width can be a number (pixels) or a string (percentage)
-    //     // e.g., width: 8 (pixels) or width: '80%' (of grid slot)
-    //     // @ts-expect-error: width is supported at runtime even if not in types
-    //     width: '100%',
-    //   },
-    // },
   };
-
-  const series = [
-    { name: 'Price', type: 'candlestick', data: candles },
-    ...(showSMA && smaData.length
-      ? [{ name: `SMA (7)`, type: 'line', data: smaData }]
-      : []),
-  ];
 
   return (
     <Box

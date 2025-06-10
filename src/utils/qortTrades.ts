@@ -34,6 +34,9 @@ export async function fetchTrades({
   });
   if (buyerPublicKey) params.append('buyerPublicKey', buyerPublicKey);
   if (sellerPublicKey) params.append('sellerPublicKey', sellerPublicKey);
+  if (minimumTimestamp === 0) {
+    params.delete('minimumTimestamp');
+  }
 
   const url = `crosschain/trades?${params.toString()}`;
   const resp = await fetch(url);
@@ -42,7 +45,11 @@ export async function fetchTrades({
 }
 
 // Candle chart utility
-export type Candle = { x: number; y: [number, number, number, number] };
+export type Candle = {
+  x: number;
+  y: [number, number, number, number];
+  volume: number;
+};
 
 export function aggregateDailyCandles(trades: Trade[]): Candle[] {
   if (!trades.length) return [];
@@ -81,6 +88,7 @@ export function aggregateCandles(
   const sorted = trades
     .slice()
     .sort((a, b) => a.tradeTimestamp - b.tradeTimestamp);
+
   const candles: Candle[] = [];
   let current: {
     bucket: number;
@@ -88,41 +96,52 @@ export function aggregateCandles(
     high: number;
     low: number;
     close: number;
+    volume: number;
   } | null = null;
 
-  const getPrice = (trade: Trade) => {
-    const qort = parseFloat(trade.qortAmount);
-    const ltc = parseFloat(trade.foreignAmount);
-    return qort > 0 ? ltc / qort : null;
-  };
+  for (const t of sorted) {
+    const q = parseFloat(t.qortAmount);
+    const f = parseFloat(t.foreignAmount);
+    if (!isFinite(q) || q <= 0) continue;
+    const price = f / q;
 
-  for (const trade of sorted) {
-    const price = getPrice(trade);
-    if (!price) continue;
-    const bucket = Math.floor(trade.tradeTimestamp / intervalMs) * intervalMs;
+    const bucket = Math.floor(t.tradeTimestamp / intervalMs) * intervalMs;
+
     if (!current || current.bucket !== bucket) {
-      if (current)
+      // flush previous candle
+      if (current) {
         candles.push({
           x: current.bucket,
           y: [current.open, current.high, current.low, current.close],
+          volume: current.volume,
         });
+      }
+      // start a new bucket
       current = {
         bucket,
         open: price,
         high: price,
         low: price,
         close: price,
+        volume: q, // initialize volume to this trade's QORT
       };
     } else {
+      // same bucket → update high/low/close & accumulate
       current.high = Math.max(current.high, price);
       current.low = Math.min(current.low, price);
       current.close = price;
+      current.volume += q; // add this trade's QORT to the bucket's volume
     }
   }
-  if (current)
+
+  // push the last bucket
+  if (current) {
     candles.push({
       x: current.bucket,
       y: [current.open, current.high, current.low, current.close],
+      volume: current.volume,
     });
+  }
+
   return candles;
 }
