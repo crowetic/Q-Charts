@@ -2,12 +2,14 @@ import { useEffect, useState, useMemo } from 'react';
 import { Trade, fetchTrades, aggregateCandles } from './utils/qortTrades';
 import { Candle } from './utils/qortTrades';
 import { QortMultiChart } from './components/QortMultiChart';
+import { QortalAccountName } from './utils/qortTrades';
 
 import {
   Button,
   Box,
   Container,
-  // Paper,
+  Paper,
+  Divider,
   CircularProgress,
   Typography,
 } from '@mui/material';
@@ -24,14 +26,17 @@ const CHAINS = [
 ];
 
 const PERIODS = [
-  { label: '2W', days: 14 },
-  { label: '3W', days: 21 },
-  { label: '4W', days: 30 },
-  { label: '5W', days: 38 },
-  { label: '6W', days: 45 },
   { label: '1M', months: 1 },
+  { label: '2M', months: 2 },
   { label: '3M', months: 3 },
+  { label: '4M', months: 4 },
+  { label: '5M', months: 5 },
   { label: '6M', months: 6 },
+  { label: '7M', months: 7 },
+  { label: '8M', months: 8 },
+  { label: '9M', months: 9 },
+  { label: '10M', months: 12 },
+  { label: '11M', months: 12 },
   { label: '1Y', months: 12 },
   { label: '1.5Y', months: 18 },
   { label: '2Y', months: 24 },
@@ -63,6 +68,9 @@ export default function App() {
   const [fetchProgress, setFetchProgress] = useState<Record<string, number>>(
     {}
   );
+
+  // --- Top Buyer/Seller account names state ---
+  const [accountNames, setAccountNames] = useState<Record<string, string>>({});
 
   // --- Helpers ---
   const getLatest = (trades: Trade[]) =>
@@ -101,32 +109,32 @@ export default function App() {
     }
   }, [cacheLoaded, selectedChain, allChainTrades]);
 
-  // --- 4) Prepare candles ---
-  const candles = useMemo<Candle[]>(() => {
-    if (!cacheLoaded) return [];
-    const trades = allChainTrades[selectedChain] || [];
-    if (!trades.length) return [];
+  // // --- 4) Prepare candles ---
+  // const candles = useMemo<Candle[]>(() => {
+  //   if (!cacheLoaded) return [];
+  //   const trades = allChainTrades[selectedChain] || [];
+  //   if (!trades.length) return [];
 
-    // apply period filter
-    const now = Date.now();
-    const p = PERIODS.find((p) => p.label === period);
-    let cutoff = 0;
-    if (p) {
-      if (p.days != null) cutoff = now - p.days * ONE_DAY;
-      else if (p.months != null) {
-        const d = new Date(now);
-        d.setMonth(d.getMonth() - p.months);
-        cutoff = d.getTime();
-      }
-    }
-    const filtered = cutoff
-      ? trades.filter((t) => t.tradeTimestamp >= cutoff)
-      : trades;
+  //   // apply period filter
+  //   const now = Date.now();
+  //   const p = PERIODS.find((p) => p.label === period);
+  //   let cutoff = 0;
+  //   if (p) {
+  //     if (p.days != null) cutoff = now - p.days * ONE_DAY;
+  //     else if (p.months != null) {
+  //       const d = new Date(now);
+  //       d.setMonth(d.getMonth() - p.months);
+  //       cutoff = d.getTime();
+  //     }
+  //   }
+  //   const filtered = cutoff
+  //     ? trades.filter((t) => t.tradeTimestamp >= cutoff)
+  //     : trades;
 
-    // percentile filter
-    const cleaned = fastPercentileFilter(filtered, 0.00005, 0.995);
-    return aggregateCandles(cleaned, interval);
-  }, [allChainTrades, selectedChain, period, interval, cacheLoaded]);
+  //   // percentile filter
+  //   const cleaned = fastPercentileFilter(filtered, 0.00005, 0.995);
+  //   return aggregateCandles(cleaned, interval);
+  // }, [allChainTrades, selectedChain, period, interval, cacheLoaded]);
 
   // --- Full fetch ---
   async function doFullFetch(chain: string) {
@@ -191,6 +199,35 @@ export default function App() {
     }
   }
 
+  async function doHistoricalFetch(chain: string) {
+    const existing = allChainTrades[chain] || [];
+    if (!existing.length) return doFullFetch(chain);
+
+    const earliest = Math.min(...existing.map((t) => t.tradeTimestamp));
+    let allOld: Trade[] = [];
+    let offset = 0;
+    const BATCH = 100;
+    while (true) {
+      const batch = await fetchTrades({
+        foreignBlockchain: chain,
+        minimumTimestamp: 0,
+        maximumTimestamp: earliest - 1,
+        limit: BATCH,
+        offset,
+        reverse: false, // ascending older trades
+      });
+      if (!batch.length) break;
+      allOld = allOld.concat(batch);
+      offset += BATCH;
+    }
+    if (allOld.length) {
+      setAllChainTrades((prev) => ({
+        ...prev,
+        [chain]: [...prev[chain], ...allOld],
+      }));
+    }
+  }
+
   // --- percentile filter ---
   function fastPercentileFilter(trades: Trade[], lower = 0.002, upper = 0.998) {
     if (trades.length < 200) return trades;
@@ -205,6 +242,152 @@ export default function App() {
       return p >= lo && p <= hi;
     });
   }
+
+  const {
+    candles,
+    filteredTrades,
+  }: { candles: Candle[]; filteredTrades: Trade[] } = useMemo(() => {
+    const trades = allChainTrades[selectedChain] || [];
+    if (!cacheLoaded || !trades.length)
+      return { candles: [], filteredTrades: [] };
+
+    // cutoff by period
+    const now = Date.now();
+    const p = PERIODS.find((p) => p.label === period);
+    let cutoff = 0;
+    if (p) {
+      if (p.months != null) {
+        const d = new Date(now);
+        d.setMonth(d.getMonth() - p.months);
+        cutoff = d.getTime();
+      }
+    }
+    const filtered = cutoff
+      ? trades.filter((t) => t.tradeTimestamp >= cutoff)
+      : trades;
+
+    // clean and aggregate for chart
+    const cleaned = fastPercentileFilter(filtered, 0.00005, 0.995);
+    const agg = aggregateCandles(cleaned, interval);
+    return { candles: agg, filteredTrades: cleaned };
+  }, [allChainTrades, selectedChain, period, interval, cacheLoaded]);
+
+  // compute metrics
+  const tradeCount = filteredTrades.length;
+  const totalQ = useMemo(
+    () => filteredTrades.reduce((s, t) => s + parseFloat(t.qortAmount), 0),
+    [filteredTrades]
+  );
+  const totalF = useMemo(
+    () => filteredTrades.reduce((s, t) => s + parseFloat(t.foreignAmount), 0),
+    [filteredTrades]
+  );
+  const prices = useMemo(
+    () =>
+      filteredTrades
+        .map((t) => parseFloat(t.foreignAmount) / parseFloat(t.qortAmount))
+        .filter((v) => isFinite(v)),
+    [filteredTrades]
+  );
+  const highPrice = prices.length ? Math.max(...prices) : 0;
+  const lowPrice = prices.length ? Math.min(...prices) : 0;
+  // biggest buyer/seller
+  // compute buyer/seller aggregates
+  const { buyerStats, sellerStats } = useMemo(() => {
+    type Agg = { q: number; f: number };
+    const b: Record<string, Agg> = {};
+    const s: Record<string, Agg> = {};
+
+    for (const t of filteredTrades) {
+      const q = parseFloat(t.qortAmount);
+      const f = parseFloat(t.foreignAmount);
+
+      const buyer = t.buyerReceivingAddress || 'unknown';
+      const seller = t.sellerAddress || 'unknown';
+
+      if (!b[buyer]) b[buyer] = { q: 0, f: 0 };
+      b[buyer].q += q;
+      b[buyer].f += f;
+
+      if (!s[seller]) s[seller] = { q: 0, f: 0 };
+      s[seller].q += q;
+      s[seller].f += f;
+    }
+    // helper to pick top
+    function top(agg: Record<string, Agg>) {
+      let bestAddr = 'N/A';
+      let bestQ = 0;
+      for (const [addr, { q }] of Object.entries(agg)) {
+        if (q > bestQ) {
+          bestQ = q;
+          bestAddr = addr;
+        }
+      }
+      const { q, f } = agg[bestAddr] || { q: 0, f: 0 };
+      return {
+        addr: bestAddr,
+        totalQ: q,
+        avgPrice: q ? f / q : 0,
+      };
+    }
+    return {
+      buyerStats: top(b),
+      sellerStats: top(s),
+    };
+  }, [filteredTrades]);
+
+  function isQortalAccountNameArray(arr: unknown): arr is QortalAccountName[] {
+    return (
+      Array.isArray(arr) &&
+      // every element is an object with string `name` and `owner`
+      arr.every(
+        (el) =>
+          typeof el === 'object' &&
+          el !== null &&
+          typeof el.name === 'string' &&
+          typeof el.owner === 'string'
+      )
+    );
+  }
+
+  useEffect(() => {
+    const addrs = [buyerStats.addr, sellerStats.addr].filter(
+      (a) => a && a !== 'N/A'
+    );
+    if (!addrs.length) return;
+
+    Promise.all(
+      addrs.map(async (addr) => {
+        try {
+          const resp = await qortalRequest({
+            action: 'GET_ACCOUNT_NAMES',
+            address: addr, // or `account: addr` if that’s what your node expects
+            limit: 1,
+            offset: 0,
+            reverse: false,
+          });
+          if (!isQortalAccountNameArray(resp)) {
+            console.warn('Unexpected GET_ACCOUNT_NAMES response:', resp);
+            return { addr, name: 'No Name' };
+          }
+          const list = Array.isArray(resp) ? resp : [];
+          // find the entry matching our address, or fallback to the first
+          const entry = list.find((x) => x.owner === addr) || list[0] || {};
+          const name = entry.name?.trim() || 'No Name';
+          return { addr, name };
+        } catch (err) {
+          console.error('Name lookup failed for', addr, err);
+          return { addr, name: 'No Name' };
+        }
+      })
+    ).then((pairs) => {
+      const map: Record<string, string> = {};
+      pairs.forEach(({ addr, name }) => {
+        map[addr] = name;
+      });
+      setAccountNames(map);
+    });
+  }, [buyerStats.addr, sellerStats.addr]);
 
   if (!cacheLoaded) {
     const prog = fetchProgress[selectedChain] || 0;
@@ -291,7 +474,15 @@ export default function App() {
           >
             Clear Cache
           </Button>
-
+          <Button
+            variant="contained"
+            color="secondary"
+            onClick={() => doHistoricalFetch(selectedChain)}
+            disabled={isFetching[selectedChain]}
+            sx={{ ml: 2 }}
+          >
+            Fetch Older Trades
+          </Button>
           {/* Manual Update button */}
           <Button
             variant="outlined"
@@ -301,7 +492,7 @@ export default function App() {
             disabled={isFetching[selectedChain]}
             sx={{ ml: 2 }}
           >
-            Obtain New Trades
+            Fetch Newer Trades
           </Button>
         </Box>
 
@@ -364,6 +555,62 @@ export default function App() {
           {loading && <CircularProgress size={24} sx={{ ml: 2 }} />}
         </Box>
       </Box>
+      {/* --- Pretty Metrics Row --- */}
+      <Paper
+        elevation={1}
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: {
+            xs: '1fr', // single column on mobile
+            sm: 'repeat(3, 1fr)', // three columns on tablet+
+            md: 'repeat(6, auto)', // six auto‐sized columns on desktop
+          },
+          alignItems: 'center',
+          gap: 2,
+          px: 2,
+          py: 1,
+          mb: 2,
+          background: theme.palette.background.paper,
+        }}
+      >
+        <Typography variant="body2" noWrap>
+          <strong>{period} Trades:</strong> {tradeCount.toLocaleString()}
+        </Typography>
+        <Divider orientation="vertical" flexItem />
+        <Typography variant="body2" noWrap>
+          <strong>{period} Vol (QORT):</strong> {totalQ.toFixed(4)}
+        </Typography>
+        <Divider orientation="vertical" flexItem />
+        <Typography variant="body2" noWrap>
+          <strong>
+            {period} Vol ({selectedChain}):
+          </strong>{' '}
+          {totalF.toFixed(4)}
+        </Typography>
+        <Divider orientation="vertical" flexItem />
+        <Typography variant="body2" noWrap>
+          <strong> {period} High:</strong> {highPrice.toFixed(8)}
+        </Typography>
+        <Divider orientation="vertical" flexItem />
+        <Typography variant="body2" noWrap>
+          <strong> {period} Low:</strong> {lowPrice.toFixed(8)}
+        </Typography>
+        <Divider orientation="vertical" flexItem />
+        <Typography>
+          <strong>Top Buyer:</strong> {accountNames[buyerStats.addr]} |{' '}
+          {buyerStats.addr}
+          <br />
+          <em>Bought:</em> {buyerStats.totalQ.toFixed(4)} QORT @ (avg/Q){' '}
+          {buyerStats.avgPrice.toFixed(8)} {selectedChain}
+        </Typography>
+        <Typography>
+          <strong>Top Seller:</strong> {accountNames[sellerStats.addr]} |{' '}
+          {sellerStats.addr}
+          <br />
+          <em>Sold:</em> {sellerStats.totalQ.toFixed(4)} QORT @ (avg/Q){' '}
+          {sellerStats.avgPrice.toFixed(8)} {selectedChain}
+        </Typography>
+      </Paper>
       {/* Chart */}
       <Box
         sx={{

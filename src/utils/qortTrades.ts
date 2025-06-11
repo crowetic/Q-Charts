@@ -4,11 +4,19 @@ export interface Trade {
   qortAmount: string;
   btcAmount: string;
   foreignAmount: string;
+  sellerAddress?: string;
+  buyerReceivingAddress?: string;
+}
+
+export interface QortalAccountName {
+  name: string;
+  owner: string;
 }
 
 export interface FetchTradesOptions {
   foreignBlockchain: string;
-  minimumTimestamp: number;
+  minimumTimestamp?: number;
+  maximumTimestamp?: number;
   buyerPublicKey?: string;
   sellerPublicKey?: string;
   limit?: number; // default 1000
@@ -19,6 +27,7 @@ export interface FetchTradesOptions {
 export async function fetchTrades({
   foreignBlockchain,
   minimumTimestamp,
+  maximumTimestamp,
   buyerPublicKey,
   sellerPublicKey,
   limit = 100,
@@ -27,19 +36,24 @@ export async function fetchTrades({
 }: FetchTradesOptions): Promise<Trade[]> {
   const params = new URLSearchParams({
     foreignBlockchain,
-    minimumTimestamp: String(minimumTimestamp),
     limit: String(limit),
     offset: String(offset),
     reverse: String(reverse),
   });
   if (buyerPublicKey) params.append('buyerPublicKey', buyerPublicKey);
   if (sellerPublicKey) params.append('sellerPublicKey', sellerPublicKey);
-  if (minimumTimestamp === 0) {
-    params.delete('minimumTimestamp');
+  // Set minimum timestamp if you like, but do not set it if it is 0 or null
+  if (minimumTimestamp != null && minimumTimestamp > 0) {
+    params.set('minimumTimestamp', String(minimumTimestamp));
   }
+  // Set maximum timestamp if passed
+  if (maximumTimestamp != null) {
+    params.set('maximumTimestamp', String(maximumTimestamp));
+  }
+
   function getApiRoot() {
     const { origin, pathname } = window.location;
-    // if path contains “/render”, cut from there
+    // if path contains “/render”, remove it. This was failing in hosted hub and anything outside dev mode prior to this addition.
     const i = pathname.indexOf('/render/');
     return i === -1 ? origin : origin + pathname.slice(0, i);
   }
