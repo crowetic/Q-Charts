@@ -459,7 +459,14 @@ export default function App() {
         }}
       >
         {/* Status & Clear */}
-        <Box position="absolute" top={16} right={16} textAlign="right">
+        {/* <Box position="absolute" top={16} right={16} textAlign="right"> */}
+        <Box
+          mx={1}
+          display="flex"
+          alignItems="center"
+          alignContent="flex-end"
+          flexDirection="row"
+        >
           <Typography variant="caption">
             Trades: {tradesCount.toLocaleString()}
             <br />
@@ -476,6 +483,7 @@ export default function App() {
           </Button>
           <Button
             variant="contained"
+            size="small"
             color="secondary"
             onClick={() => doHistoricalFetch(selectedChain)}
             disabled={isFetching[selectedChain]}
@@ -525,7 +533,7 @@ export default function App() {
               size="small"
               variant={period === p.label ? 'contained' : 'outlined'}
               onClick={() => setPeriod(p.label)}
-              sx={{ mx: 0.5 }}
+              sx={{ mx: 0.1 }}
             >
               {p.label}
             </Button>
@@ -533,7 +541,7 @@ export default function App() {
         </Box>
 
         {/* Fetch Buttons */}
-        <Box mb={2}>
+        <Box mx={2}>
           {!tradesCount && !loading && (
             <Button
               variant="contained"
@@ -549,7 +557,7 @@ export default function App() {
               onClick={() => doIncrementalFetch(selectedChain)}
               sx={{ ml: 2 }}
             >
-              Fetch new trades (over 24h old)
+              Fetch new trades (notice!)
             </Button>
           )}
           {loading && <CircularProgress size={24} sx={{ ml: 2 }} />}
