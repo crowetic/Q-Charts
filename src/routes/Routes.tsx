@@ -1,6 +1,7 @@
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import Layout from '../styles/Layout';
 import App from '../App';
+import Stats from '../pages/Stats';
 
 // Use a custom type if you need it
 interface CustomWindow extends Window {
@@ -19,6 +20,10 @@ export function Routes() {
           {
             index: true,
             element: <App />,
+          },
+          {
+            path: 'stats',
+            element: <Stats />,
           },
         ],
       },

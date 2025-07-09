@@ -1,6 +1,7 @@
 import { Routes } from './routes/Routes.tsx';
 import { GlobalProvider } from 'qapp-core';
 import { publicSalt } from './qapp-config.ts';
+import { TradeDataProvider } from './context/TradeDataProvider';
 
 export const AppWrapper = () => {
   return (
@@ -17,7 +18,9 @@ export const AppWrapper = () => {
         publicSalt: publicSalt,
       }}
     >
-      <Routes />
+      <TradeDataProvider>
+        <Routes />
+      </TradeDataProvider>
     </GlobalProvider>
   );
 };

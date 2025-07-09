@@ -1,15 +1,16 @@
 import { Outlet } from 'react-router-dom';
 import { useIframe } from '../hooks/useIframeListener';
+import Header from '../components/Header';
 
 const Layout = () => {
   useIframe();
+
   return (
     <>
-      {/* Add Header here */}
+      <Header />
       <main>
-        <Outlet /> {/* This is where page content will be rendered */}
+        <Outlet />
       </main>
-      {/* Add Footer here */}
     </>
   );
 };

@@ -25,5 +25,5 @@
     "noUncheckedSideEffectImports": true,
     "types": ["qapp-core/global"]
   },
-  "include": ["src"]
+  "include": ["src", "BACKUPS/tradeFetcher.ts"]
 }
